@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-
+use Illuminate\Support\Facades\Storage;
 
 class UserController extends Controller
 {
@@ -35,39 +35,46 @@ class UserController extends Controller
      */
        public function store(Request $request)
     {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users,email', // Asumsi nama tabel Anda adalah 'users'
-            'password' => 'required|string|min:8', // Tambahkan minimal karakter untuk keamanan
-            'passwordconfirm' => 'required|same:password', // Tambahkan minimal karakter untuk keamanan
-            'avatar' => 'nullable|image|mimes:jpeg,png,jpg|max:1048', // Jika berupa upload file gambar
-            'role' => 'required|in:Superadmin,Admin', // Memastikan input sesuai pilihan enum
-            ], [
-                'name.required' => 'Nama tidak boleh kosong.',
-                'name.max' => 'Nama tidak boleh lebih dari :max karakter.',
-                'email.required' => 'Email tidak boleh kosong.',
-                'email.email' => 'Format email tidak valid.',
-                'email.unique' => 'Email sudah terdaftar.',
+       $validated = $request->validate([
+    'name' => 'required|string|max:255',
+    'email' => 'required|string|email|max:255|unique:users,email',
+    'password' => 'required|string|min:8',
+    'passwordconfirm' => 'required|same:password',
+    'avatar' => 'nullable|image|mimes:jpeg,png,jpg|max:1048', // Catatan: max:1048 itu ~1MB, bukan 2MB
+    'role' => 'required|in:Superadmin,Admin',
+], [
+    'name.required' => 'Nama tidak boleh kosong.',
+    'name.max' => 'Nama tidak boleh lebih dari :max karakter.',
+    
+    'email.required' => 'Email tidak boleh kosong.',
+    'email.email' => 'Format email tidak valid.',
+    'email.unique' => 'Email sudah terdaftar.',
 
-                'password.required' => 'Password tidak boleh kosong.',
-                'password.min' => 'Password minimal harus :min karakter.',
-                
-                'avatar.image' => 'Avatar harus berupa gambar.',
-                'avatar.mimes' => 'Format gambar harus jpeg, png, atau jpg.',
-                'avatar.max' => 'Ukuran gambar tidak boleh lebih dari 2MB.',
-                
-                'role.required' => 'Role harus dipilih.',
-                'role.in' => 'Role yang dipilih tidak valid.',
-                ]);
-
+    'password.required' => 'Password tidak boleh kosong.',
+    'password.min' => 'Password minimal harus :min karakter.',
+    
+    // --- Pesan Error Baru untuk Password Confirm ---
+    'passwordconfirm.required' => 'Konfirmasi password tidak boleh kosong.',
+    'passwordconfirm.same' => 'Konfirmasi password harus sama dengan password.',
+    
+    'avatar.image' => 'Avatar harus berupa gambar.',
+    'avatar.mimes' => 'Format gambar harus jpeg, png, atau jpg.',
+    'avatar.max' => 'Ukuran gambar tidak boleh lebih dari 1MB.', // Disesuaikan dengan max:1048
+    
+    'role.required' => 'Role harus dipilih.',
+    'role.in' => 'Role yang dipilih tidak valid.',
+]);
+    DB::beginTransaction();
     try {
 
     if($request->file('avatar')) {
         $validated['avatar'] = $request->file('avatar')->store('avatar', 'public');
-
-
     }
-        DB::beginTransaction();
+
+        $validated['password'] = bcrypt($request->password);
+        $validated['email_verified_at'] = now();
+
+
         User::create($validated);
         DB::commit();
         return to_route('user.index')->withSuccess('Data berhasil ditambahkan');
@@ -80,32 +87,101 @@ class UserController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(string $id)
+    public function show(user $user)
     {
-        //
+        return view('user.show',[
+            'title' =>'Detail User',
+            'user' => $user,
+        ]);
     }
 
     /**
      * Show the form for editing the specified resource.
      */
-    public function edit(string $id)
+    public function edit(user $user)
     {
-        //
+        return view('user.edit',[
+            'title' =>'Edit User',
+            'user' => $user,
+        ]);
     }
 
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, string $id)
+    public function update(Request $request, user $user)
     {
-        //
+       $validated = $request->validate([
+    'name' => 'required|string|max:255',
+    'email' => 'required|string|email|max:255|unique:users,email,' . $user->id,
+    'password' => 'nullable|string|min:8',
+    'passwordconfirm' => 'nullable|same:password',
+    'avatar' => 'nullable|image|mimes:jpeg,png,jpg|max:1048', // Catatan: max:1048 itu ~1MB, bukan 2MB
+    'role' => 'required|in:Superadmin,Admin',
+], [
+    'name.required' => 'Nama tidak boleh kosong.',
+    'name.max' => 'Nama tidak boleh lebih dari :max karakter.',
+    
+    'email.required' => 'Email tidak boleh kosong.',
+    'email.email' => 'Format email tidak valid.',
+    'email.unique' => 'Email sudah terdaftar.',
+
+    'password.required' => 'Password tidak boleh kosong.',
+    'password.min' => 'Password minimal harus :min karakter.',
+    
+    // --- Pesan Error Baru untuk Password Confirm ---
+    'passwordconfirm.required' => 'Konfirmasi password tidak boleh kosong.',
+    'passwordconfirm.same' => 'Konfirmasi password harus sama dengan password.',
+    
+    'avatar.image' => 'Avatar harus berupa gambar.',
+    'avatar.mimes' => 'Format gambar harus jpeg, png, atau jpg.',
+    'avatar.max' => 'Ukuran gambar tidak boleh lebih dari 1MB.', // Disesuaikan dengan max:1048
+    
+    'role.required' => 'Role harus dipilih.',
+    'role.in' => 'Role yang dipilih tidak valid.',
+]);
+    DB::beginTransaction();
+    try {
+
+    if($request->file('avatar')) {
+        $validated['avatar'] = $request->file('avatar')->store('avatar', 'public');
+        if($user->avatar){
+            Storage::disk('public')->delete($user->avatar);
+        }
+    }
+    
+        if($request->password){
+            $validated['password'] = bcrypt($request->password);
+        } else {
+            unset($validated['password']);
+        }
+
+
+        $user->update($validated);
+        DB::commit();
+        return to_route('user.index')->withSuccess('Data berhasil diubah');
+    }   catch(\Exception $e) {  
+        DB::rollBack();
+        return to_route('user.edit', $user)->withErrors('Data gagal diubah');
+    } 
     }
 
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(string $id)
+    public function destroy(user $user)
     {
-        //
+        DB::beginTransaction();
+        try {
+        $user->delete();
+         if($user->avatar){
+            Storage::disk('public')->delete($user->avatar);
+        }
+           DB::commit();
+        return to_route('user.index')->withSuccess('Data berhasil dihapus');
+    }   catch(\Exception $e) {  
+        DB::rollBack();
+        return to_route('user.index')->withErrors('Data gagal dihapus');
+    } 
     }
 }
